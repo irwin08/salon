@@ -1,0 +1,36 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Coverage output
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build output (if you name your compiled binary something specific, e.g. "salon")
+/salon
+/bin/
+
+# Dependency directories (uncomment if you're not using go modules, though you are)
+# vendor/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# User-specific
+characters/
+texts/
