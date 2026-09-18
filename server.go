@@ -231,11 +231,24 @@ func closeSalonSessionCollect(chars []character, transcript []turn) []string {
 	return updated
 }
 
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func runServer(port string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /session/start", handleStart)
 	mux.HandleFunc("POST /session/{id}/message", handleMessage)
 	mux.HandleFunc("POST /session/{id}/end", handleEnd)
 	fmt.Println("listening on :" + port)
-	http.ListenAndServe(":"+port, mux)
+	http.ListenAndServe(":"+port, withCORS(mux))
 }
