@@ -571,15 +571,26 @@ func notEmpty(s string) bool {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: go run main.go <character-folder>")
-		fmt.Println("   or: go run main.go salon <folder-a> <folder-b>")
+		fmt.Println("usage: go run . <character-folder>")
+		fmt.Println("   or: go run . salon <folder-a> <folder-b>")
+		fmt.Println("   or: go run . read <character-folder> <slug> <text-file-path> [question]")
+		fmt.Println("   or: go run . serve")
 
 		os.Exit(1)
 	}
 
+	if os.Args[1] == "serve" {
+		port := "8080"
+		if len(os.Args) > 2 {
+			port = os.Args[2]
+		}
+		runServer(port)
+		return
+	}
+
 	if os.Args[1] == "read" {
 		if len(os.Args) < 5 {
-			fmt.Println("usage: go run main.go read <character-dir> <slug> <text-file-path> [question]")
+			fmt.Println("usage: go run . read <character-dir> <slug> <text-file-path> [question]")
 			os.Exit(1)
 		}
 		dir := os.Args[2]
@@ -612,7 +623,7 @@ func main() {
 
 	if os.Args[1] == "salon" {
 		if len(os.Args) < 4 {
-			fmt.Println("usage: go run main.go salon <folder-1> <folder-2> [folder-3 ...] [reading:<slug>]")
+			fmt.Println("usage: go run . salon <folder-1> <folder-2> [folder-3 ...] [reading:<slug>]")
 			os.Exit(1)
 		}
 		args := os.Args[2:]
