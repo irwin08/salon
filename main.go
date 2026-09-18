@@ -54,8 +54,12 @@ func loadCharacter(dir, readingSlug string) character {
 
 	var reading string
 	if readingSlug != "" {
-		readingBytes, _ := os.ReadFile(readingPath(dir, readingSlug))
-		reading = string(readingBytes)
+		if progressBytes, err := os.ReadFile(readingProgressPath(dir, readingSlug)); err == nil {
+			reading = string(progressBytes)
+		} else {
+			readingBytes, _ := os.ReadFile(readingPath(dir, readingSlug))
+			reading = string(readingBytes)
+		}
 	}
 
 	return character{
@@ -370,10 +374,12 @@ func closeSalonSession(chars []character, transcript []turn) {
 	for _, c := range chars {
 		if delta := extractDelta(c.core.Name, full); notEmpty(delta) {
 			appendNotes("characters/"+c.dir+"/notes.md", c.core.Name, delta)
+			condenseIfNeeded("characters/"+c.dir+"/notes.md", c.core.Name, "development")
 			fmt.Printf("\n(%s's notes updated)\n", c.core.Name)
 		}
 		if topics := extractTopics(c.core.Name, full); notEmpty(topics) {
 			appendNotes("characters/"+c.dir+"/topics.md", c.core.Name, topics)
+			condenseIfNeeded("characters/"+c.dir+"/topics.md", c.core.Name, "topics discussed")
 			fmt.Printf("(%s's topics updated)\n", c.core.Name)
 		}
 		if userRel := extractUserRelationalDelta(c.core.Name, full); notEmpty(userRel) {
@@ -552,10 +558,12 @@ func closeSession(c character, history []message) {
 
 	if delta := extractDelta(c.core.Name, transcript); notEmpty(delta) {
 		appendNotes("characters/"+c.dir+"/notes.md", c.core.Name, delta)
+		condenseIfNeeded("characters/"+c.dir+"/notes.md", c.core.Name, "development")
 		fmt.Println("\n(notes updated)")
 	}
 	if topics := extractTopics(c.core.Name, transcript); notEmpty(topics) {
 		appendNotes("characters/"+c.dir+"/topics.md", c.core.Name, topics)
+		condenseIfNeeded("characters/"+c.dir+"/topics.md", c.core.Name, "topics discussed")
 		fmt.Println("(topics updated)")
 	}
 	if userRel := extractUserRelationalDelta(c.core.Name, transcript); notEmpty(userRel) {
@@ -564,9 +572,149 @@ func closeSession(c character, history []message) {
 	}
 }
 
+func readingProgressPath(dir, bookSlug string) string {
+	return "characters/" + dir + "/reading/" + bookSlug + "/progress.md"
+}
+
+func splitProgress(s string) (structure, reaction string) {
+	parts := strings.SplitN(s, "# REACTION", 2)
+	structure = strings.TrimPrefix(strings.TrimSpace(parts[0]), "# STRUCTURE")
+	structure = strings.TrimSpace(structure)
+	if len(parts) > 1 {
+		reaction = strings.TrimSpace(parts[1])
+	}
+	return structure, reaction
+}
+
+func extractStructureUpdate(bookTitle, chapterLabel, priorStructure, chapterText string) string {
+	sp := "You are maintaining a compact running structural account of " +
+		bookTitle + ", chapter by chapter. Here is the account through the " +
+		"previous chapter:\n\n"
+
+	if priorStructure != "" {
+		sp += priorStructure
+	} else {
+		sp += "(nothing yet — this is the first chapter)"
+	}
+
+	sp += "\n\nYou have now read " + chapterLabel + ". Update this account. " +
+		"This is a compact running index, not a recap — it must stay under " +
+		"roughly 400 words TOTAL regardless of how many chapters have been " +
+		"read. To do that, compress older chapters progressively as new " +
+		"ones are added: a chapter from several chapters back should now be " +
+		"a single clause, not a paragraph. Only the most recent chapter or " +
+		"two should get more than a sentence. If you're writing more than a " +
+		"sentence about something from several chapters back, that's wrong " +
+		"— condense it further, even if it means losing detail. Flag " +
+		"interpretation as interpretation; don't assert something the text " +
+		"doesn't say.\n\nThe new chapter (" + chapterLabel + "):\n\n" + chapterText
+
+	return callClaude(sp, []message{{Role: "user", Content: "Update the structure."}}, 1024)
+}
+
+func extractReactionUpdate(name, coreCtx, bookTitle, chapterLabel, priorReaction, chapterText, question string) string {
+	sp := "You are " + name + " — not a literary critic, this specific " +
+		"person, reading for your own reasons:\n\n" + coreCtx + "\n\n" +
+		"Below is your running reaction to " + bookTitle + " so far. Read it, " +
+		"then read the new chapter, then update your reaction so it sounds " +
+		"like YOU — filtered through your own particular anchors, blind " +
+		"spots, and way of talking. If your existing reaction reads like it " +
+		"could belong to anyone, correct that rather than continuing it.\n\n" +
+		"Your reaction so far:\n\n"
+
+	if priorReaction != "" {
+		sp += priorReaction
+	} else {
+		sp += "(nothing yet — this is the first chapter)"
+	}
+	sp += "\n\n"
+
+	if question != "" {
+		sp += "Keep in mind, loosely: " + question + "\n\n"
+	}
+
+	sp += "You've now read " + chapterLabel + ". Update your reaction in " +
+		"under roughly 250 words total — condense or drop what no longer " +
+		"feels alive to make room for what's new. Specific, personal, in " +
+		"character. Not a summary of events.\n\nThe new chapter:\n\n" + chapterText
+
+	return callClaude(sp, []message{{Role: "user", Content: "React as yourself."}}, 1024)
+}
+
 func notEmpty(s string) bool {
 	t := strings.TrimSpace(s)
 	return t != "" && !strings.EqualFold(t, "NONE")
+}
+
+const maxEntriesBeforeCondense = 12
+const keepRecentEntries = 5
+
+func splitEntries(content string) []string {
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
+	raw := strings.Split(content, "\n## ")
+	var entries []string
+	for i, e := range raw {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if i > 0 {
+			e = "## " + e
+		} else if !strings.HasPrefix(e, "## ") {
+			// leading content before the first "## " header, if any — keep as-is
+		}
+		entries = append(entries, e)
+	}
+	return entries
+}
+
+func extractCondensation(name, kind string, oldEntries []string) string {
+	joined := strings.Join(oldEntries, "\n\n")
+	sp := "You are condensing older entries from a running development log " +
+		"for a character named " + name + ", tracking their " + kind + " over " +
+		"many sessions. Below are the older entries, in order. Write a single " +
+		"condensed account that preserves what's still genuinely load-bearing " +
+		"— real shifts, unresolved tensions, anything a future session should " +
+		"still know — and drops what's now redundant, superseded, or was " +
+		"only significant in the moment. This is not a summary of everything " +
+		"that happened; it's a compression that keeps only what still " +
+		"matters. Be honest and willing to drop things — most of what was " +
+		"significant at the time will not still be significant now. Write the " +
+		"body only — do not include your own heading, date, or title line, " +
+		"just the condensed content itself as plain paragraphs. Third person, " +
+		"past tense, under roughly 300 words.\n\nThe older entries:\n\n" + joined
+	return callClaude(sp, []message{{Role: "user", Content: "Condense these."}}, 1024)
+}
+
+func condenseIfNeeded(path, name, kind string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	entries := splitEntries(string(data))
+	if len(entries) <= maxEntriesBeforeCondense {
+		return
+	}
+
+	splitPoint := len(entries) - keepRecentEntries
+	older := entries[:splitPoint]
+	recent := entries[splitPoint:]
+
+	condensed := extractCondensation(name, kind, older)
+
+	var sb strings.Builder
+	sb.WriteString("## " + time.Now().Format("2006-01-02") + " (condensed earlier entries)\n")
+	sb.WriteString(condensed)
+	sb.WriteString("\n\n")
+	for _, e := range recent {
+		sb.WriteString(e + "\n\n")
+	}
+
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(sb.String())+"\n"), 0644); err != nil {
+		fmt.Println("warning: could not write condensed notes:", err)
+	}
 }
 
 func main() {
@@ -634,6 +782,48 @@ func main() {
 			args = args[:len(args)-1]
 		}
 		runSalon(args, readingSlug)
+		return
+	}
+
+	if os.Args[1] == "readchapter" {
+		if len(os.Args) < 6 {
+			fmt.Println("usage: go run . readchapter <character-dir> <book-slug> <chapter-label> <text-file-path> [question]")
+			os.Exit(1)
+		}
+		dir := os.Args[2]
+		bookSlug := os.Args[3]
+		chapterLabel := os.Args[4]
+		textPath := os.Args[5]
+		question := ""
+		if len(os.Args) > 6 {
+			question = os.Args[6]
+		}
+
+		core := loadCore("characters/" + dir + "/core.yaml")
+		textBytes, err := os.ReadFile(textPath)
+		if err != nil {
+			fmt.Println("error reading text file:", err)
+			os.Exit(1)
+		}
+
+		progressFilePath := readingProgressPath(dir, bookSlug)
+		priorBytes, _ := os.ReadFile(progressFilePath) // empty if first chapter, that's fine
+		priorStructure, priorReaction := splitProgress(string(priorBytes))
+
+		fmt.Printf("%s is reading %s (%s)...\n", core.Name, bookSlug, chapterLabel)
+
+		newStructure := extractStructureUpdate(bookSlug, chapterLabel, priorStructure, string(textBytes))
+		newReaction := extractReactionUpdate(core.Name, coreContextSummary(core), bookSlug, chapterLabel, priorReaction, string(textBytes), question)
+
+		combined := "# STRUCTURE\n\n" + newStructure + "\n\n# REACTION\n\n" + newReaction
+
+		os.MkdirAll("characters/"+dir+"/reading/"+bookSlug, 0755)
+		if err := os.WriteFile(progressFilePath, []byte(combined), 0644); err != nil {
+			fmt.Println("error saving progress:", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("\n%s's updated reading notes on %s through %s:\n\nSTRUCTURE:\n%s\n\nREACTION:\n%s\n", core.Name, bookSlug, chapterLabel, newStructure, newReaction)
 		return
 	}
 
