@@ -165,7 +165,8 @@
     padding: 10px 12px;
     font-size: 15px;
     font-family: inherit;
-    max-height: 100px;
+    max-height: 140px;
+    overflow-y: auto;
   }
   #chat-form textarea:disabled {
     opacity: 0.6;
@@ -333,13 +334,17 @@
     }
   });
 
-  // Enter to send, Shift+Enter for newline
-  chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      chatForm.requestSubmit();
-    }
-  });
+  // Allow enter to send if on desktop, if on mobile, enter is newline.
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+  if (!isTouchDevice) {
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        chatForm.requestSubmit();
+      }
+    });
+  }
 
   endBtn.addEventListener('click', async () => {
     if (endBtn.disabled) return;
