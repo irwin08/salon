@@ -280,6 +280,11 @@
       }
       const data = await res.json();
       sessionId = data.session_id;
+
+      localStorage.setItem('salon_session_id', sessionId);
+      localStorage.setItem('salon_characters', JSON.stringify(chars));
+      localStorage.setItem('salon_server_url', serverUrl);
+
       chatTitle.textContent = chars.join(' · ');
       setupView.classList.add('hidden');
       chatView.classList.remove('hidden');
@@ -364,12 +369,54 @@
         : 'Session ended. Nothing notable to record.');
       chatInput.disabled = true;
       sendBtn.disabled = true;
+
+      localStorage.removeItem('salon_session_id');
+      localStorage.removeItem('salon_characters');
+      localStorage.removeItem('salon_server_url');
     } catch (e) {
       addSystem('Could not reach server to end session: ' + e.message);
       endBtn.disabled = false; // let them retry if it genuinely failed
       sessionId = idToEnd; // restore, since the session might still be alive server-side
     }
   });
+
+  window.addEventListener('DOMContentLoaded', async () => {
+    const savedId = localStorage.getItem('salon_session_id');
+    const savedUrl = localStorage.getItem('salon_server_url');
+    const savedChars = localStorage.getItem('salon_characters');
+
+    if (savedId && savedUrl) {
+      sessionId = savedId;
+      serverUrl = savedUrl;
+      const chars = savedChars ? JSON.parse(savedChars) : [];
+      chatTitle.textContent = chars.join(' · ') || 'Salon';
+      setupView.classList.add('hidden');
+      chatView.classList.remove('hidden');
+
+      try {
+        const res = await fetch(serverUrl + '/session/' + sessionId + '/transcript');
+        if (res.ok) {
+          const data = await res.json();
+          (data.transcript || []).forEach(t => {
+            const cls = t.speaker === 'User' ? 'user' : 'character';
+            addBubble(t.speaker === 'User' ? null : t.speaker, t.content, cls);
+          });
+          addSystem('Resumed session.');
+        } else {
+          addSystem('Could not find that session on the server — it may have ended or the server restarted.');
+          localStorage.removeItem('salon_session_id');
+          localStorage.removeItem('salon_characters');
+          localStorage.removeItem('salon_server_url');
+          sessionId = null;
+          chatView.classList.add('hidden');
+          setupView.classList.remove('hidden');
+        }
+      } catch (e) {
+        addSystem('Could not reach server to resume: ' + e.message);
+      }
+    }
+  });
+
 </script>
 
 </body>

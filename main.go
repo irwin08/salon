@@ -403,8 +403,8 @@ func closeSalonSession(chars []character, transcript []turn) {
 }
 
 type turn struct {
-	Speaker string
-	Content string
+	Speaker string `json:"speaker"`
+	Content string `json:"content"`
 }
 
 func toAPIMessages(transcript []turn, selfName string) []message {

@@ -63,6 +63,10 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
+type transcriptResponse struct {
+	Transcript []turn `json:"transcript"`
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -195,6 +199,16 @@ func handleEnd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, endResponse{Updated: updated})
 }
 
+func handleTranscript(w http.ResponseWriter, r *http.Request) {
+	s, ok := getSession(w, r)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	writeJSON(w, http.StatusOK, transcriptResponse{Transcript: s.transcript})
+}
+
 func closeSalonSessionCollect(chars []character, transcript []turn) []string {
 	var updated []string
 	if len(transcript) == 0 {
@@ -249,6 +263,7 @@ func runServer(port string) {
 	mux.HandleFunc("POST /session/start", handleStart)
 	mux.HandleFunc("POST /session/{id}/message", handleMessage)
 	mux.HandleFunc("POST /session/{id}/end", handleEnd)
+	mux.HandleFunc("GET /session/{id}/transcript", handleTranscript)
 	fmt.Println("listening on :" + port)
 	http.ListenAndServe(":"+port, withCORS(mux))
 }
