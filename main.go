@@ -362,10 +362,10 @@ func runSalon(dirs []string, readingSlug string) {
 		fmt.Print("\nYou> ")
 	}
 
-	closeSalonSession(chars, transcript)
+	closeSalonSession(chars, transcript, readingSlug)
 }
 
-func closeSalonSession(chars []character, transcript []turn) {
+func closeSalonSession(chars []character, transcript []turn, bookSlug string) {
 	if len(transcript) == 0 {
 		return
 	}
@@ -385,6 +385,18 @@ func closeSalonSession(chars []character, transcript []turn) {
 		if userRel := extractUserRelationalDelta(c.core.Name, full); notEmpty(userRel) {
 			appendNotes(userRelationPath(c.core.Name), c.core.Name, userRel)
 			fmt.Printf("(%s's relationship-with-you notes updated)\n", c.core.Name)
+		}
+
+		if bookSlug != "" {
+			progressPath := readingProgressPath(c.dir, bookSlug)
+			if progressBytes, err := os.ReadFile(progressPath); err == nil {
+				structure, priorReaction := splitProgress(string(progressBytes))
+				newReaction := extractDiscussionReactionUpdate(c.core.Name, coreContextSummary(c.core), bookSlug, priorReaction, full)
+				combined := "# STRUCTURE\n\n" + structure + "\n\n# REACTION\n\n" + newReaction
+				if err := os.WriteFile(progressPath, []byte(combined), 0644); err == nil {
+					fmt.Printf("(%s's reading of %s updated from discussion)\n", c.core.Name, bookSlug)
+				}
+			}
 		}
 	}
 
@@ -655,6 +667,32 @@ func extractReactionUpdate(name, coreCtx, bookTitle, chapterLabel, priorReaction
 		"character. Not a summary of events.\n\nThe new chapter:\n\n" + chapterText
 
 	return callClaude(sp, []message{{Role: "user", Content: "React as yourself."}}, 1024)
+}
+
+func extractDiscussionReactionUpdate(name, coreCtx, bookTitle, priorReaction, discussionTranscript string) string {
+	sp := "You are " + name + " — not a literary critic, this specific " +
+		"person:\n\n" + coreCtx + "\n\nYou've just had a conversation with " +
+		"others about " + bookTitle + ". Here is your reaction to the book " +
+		"before this conversation:\n\n"
+
+	if priorReaction != "" {
+		sp += priorReaction
+	} else {
+		sp += "(nothing yet)"
+	}
+
+	sp += "\n\nHere is the discussion that just happened:\n\n" + discussionTranscript +
+		"\n\nUpdate your reaction to the book in light of this conversation. " +
+		"This is not a summary of who said what — it's whether anything " +
+		"about how YOU think about the book actually moved: a point someone " +
+		"raised that sharpened or complicated your view, something you said " +
+		"out loud that you're now more sure of (or less), a tension someone " +
+		"else surfaced that you hadn't noticed. If nothing genuinely shifted " +
+		"your own reading, say so briefly and otherwise leave your reaction " +
+		"as it was — don't manufacture movement. Keep it under roughly 250 " +
+		"words total, in character, in your own voice."
+
+	return callClaude(sp, []message{{Role: "user", Content: "Update your reaction."}}, 1024)
 }
 
 func notEmpty(s string) bool {

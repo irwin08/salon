@@ -17,6 +17,7 @@ type session struct {
 	chars         []character
 	transcript    []turn
 	systemPrompts map[string]string
+	readingSlug   string
 }
 
 var (
@@ -121,6 +122,7 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 	s := &session{
 		chars:         chars,
 		systemPrompts: systemPrompts,
+		readingSlug:   req.Reading,
 	}
 
 	id := newSessionID()
@@ -189,7 +191,7 @@ func handleEnd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	updated := closeSalonSessionCollect(s.chars, s.transcript)
+	updated := closeSalonSessionCollect(s.chars, s.transcript, s.readingSlug)
 	s.mu.Unlock()
 
 	sessionsMu.Lock()
@@ -209,7 +211,7 @@ func handleTranscript(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, transcriptResponse{Transcript: s.transcript})
 }
 
-func closeSalonSessionCollect(chars []character, transcript []turn) []string {
+func closeSalonSessionCollect(chars []character, transcript []turn, bookSlug string) []string {
 	var updated []string
 	if len(transcript) == 0 {
 		return updated
@@ -228,6 +230,18 @@ func closeSalonSessionCollect(chars []character, transcript []turn) []string {
 		if userRel := extractUserRelationalDelta(c.core.Name, full); notEmpty(userRel) {
 			appendNotes(userRelationPath(c.core.Name), c.core.Name, userRel)
 			updated = append(updated, c.core.Name+"'s relationship-with-you notes")
+		}
+
+		if bookSlug != "" {
+			progressPath := readingProgressPath(c.dir, bookSlug)
+			if progressBytes, err := os.ReadFile(progressPath); err == nil {
+				structure, priorReaction := splitProgress(string(progressBytes))
+				newReaction := extractDiscussionReactionUpdate(c.core.Name, coreContextSummary(c.core), bookSlug, priorReaction, full)
+				combined := "# STRUCTURE\n\n" + structure + "\n\n# REACTION\n\n" + newReaction
+				if err := os.WriteFile(progressPath, []byte(combined), 0644); err == nil {
+					updated = append(updated, c.core.Name+"'s reading of "+bookSlug)
+				}
+			}
 		}
 	}
 
