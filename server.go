@@ -278,6 +278,7 @@ func runServer(port string) {
 	mux.HandleFunc("POST /session/{id}/message", handleMessage)
 	mux.HandleFunc("POST /session/{id}/end", handleEnd)
 	mux.HandleFunc("GET /session/{id}/transcript", handleTranscript)
+	mux.Handle("GET /", http.FileServer(http.Dir("./web")))
 	fmt.Println("listening on :" + port)
 	http.ListenAndServe(":"+port, withCORS(mux))
 }
