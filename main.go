@@ -454,11 +454,21 @@ func formatMultiTranscript(transcript []turn) string {
 	return sb.String()
 }
 
+type cacheControl struct {
+	Type string `json:"type"`
+}
+
+type systemBlock struct {
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
 type anthropicRequest struct {
-	Model     string    `json:"model"`
-	MaxTokens int       `json:"max_tokens"`
-	System    string    `json:"system"`
-	Messages  []message `json:"messages"`
+	Model     string        `json:"model"`
+	MaxTokens int           `json:"max_tokens"`
+	System    []systemBlock `json:"system"`
+	Messages  []message     `json:"messages"`
 }
 
 type message struct {
@@ -476,8 +486,14 @@ func callClaude(systemPrompt string, history []message, maxTokens int) string {
 	reqBody := anthropicRequest{
 		Model:     "claude-sonnet-4-6",
 		MaxTokens: maxTokens,
-		System:    systemPrompt,
-		Messages:  history,
+		System: []systemBlock{
+			{
+				Type:         "text",
+				Text:         systemPrompt,
+				CacheControl: &cacheControl{Type: "ephemeral"},
+			},
+		},
+		Messages: history,
 	}
 	b, _ := json.Marshal(reqBody)
 
