@@ -23,6 +23,7 @@ type Core struct {
 	Voice       []string          `yaml:"voice"`
 	Boundaries  []string          `yaml:"boundaries"`
 	Reputation  map[string]string `yaml:"reputation"`
+	VoiceID     string            `yaml:"voice_id"`
 }
 
 func loadCore(path string) Core {

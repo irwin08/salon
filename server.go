@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sync"
@@ -44,11 +47,13 @@ type startResponse struct {
 
 type messageRequest struct {
 	Message string `json:"message"`
+	Voice   bool   `json:"voice"`
 }
 
 type replyItem struct {
-	Speaker string `json:"speaker"`
-	Content string `json:"content"`
+	Speaker     string `json:"speaker"`
+	Content     string `json:"content"`
+	AudioBase64 string `json:"audio_base64,omitempty"`
 }
 
 type messageResponse struct {
@@ -145,6 +150,32 @@ func getSession(w http.ResponseWriter, r *http.Request) (*session, bool) {
 	return s, true
 }
 
+func synthesizeSpeech(voiceID, text string) ([]byte, error) {
+	if voiceID == "" {
+		return nil, nil
+	}
+	url := "https://api.elevenlabs.io/v1/text-to-speech/" + voiceID
+	body, _ := json.Marshal(map[string]string{
+		"text":     text,
+		"model_id": "eleven_flash_v2_5",
+	})
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("xi-api-key", os.Getenv("ELEVENLABS_API_KEY"))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("tts error %d: %s", resp.StatusCode, string(b))
+	}
+	return io.ReadAll(resp.Body)
+}
+
 func handleMessage(w http.ResponseWriter, r *http.Request) {
 	s, ok := getSession(w, r)
 	if !ok {
@@ -172,7 +203,18 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			s.transcript = append(s.transcript, turn{Speaker: c.core.Name, Content: reply})
-			resp.Replies = append(resp.Replies, replyItem{Speaker: c.core.Name, Content: reply})
+
+			item := replyItem{Speaker: c.core.Name, Content: reply}
+			if req.Voice && c.core.VoiceID != "" {
+				audio, err := synthesizeSpeech(c.core.VoiceID, reply)
+				if err != nil {
+					fmt.Println("TTS error for", c.core.Name+":", err)
+				} else if audio != nil {
+					item.AudioBase64 = base64.StdEncoding.EncodeToString(audio)
+				}
+			}
+
+			resp.Replies = append(resp.Replies, item)
 		}
 	}
 
